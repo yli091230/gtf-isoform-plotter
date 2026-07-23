@@ -10,7 +10,7 @@ output is an editable PDF: transcript labels remain text, and exons, introns,
 strand chevrons, axes, highlights, and scale bars remain vector objects in
 Adobe Illustrator.
 
-## Features
+## 1. Features
 
 - Reads standard `.gtf` and gzip-compressed `.gtf.gz` files.
 - Selects genes by `gene_name` or `gene_id`.
@@ -28,11 +28,11 @@ Adobe Illustrator.
 - Allows ±2 bp exon-coordinate differences by default.
 - Flags transcript-only GTF records with orange hatched blocks and a warning legend.
 
-## Installation
+## 2. Installation
 
 Python 3.9 or newer is required.
 
-### pip
+### 2.1 pip
 
 ```bash
 cd gtf-isoform-plotter
@@ -48,14 +48,14 @@ For an editable development installation:
 python -m pip install -e ".[dev]"
 ```
 
-### Conda
+### 2.2 Conda
 
 ```bash
 conda env create -f environment.yml
 conda activate gtf-isoform-plotter
 ```
 
-## Plot types
+## 3. Plotting modes
 
 The program provides two deliberately separate workflows:
 
@@ -65,7 +65,7 @@ The program provides two deliberately separate workflows:
 
 The default is `--plot-type isoforms`.
 
-## Isoform mode
+### 3.1 Isoform mode
 
 Plot all isoforms of one gene:
 
@@ -99,7 +99,14 @@ gtf-isoform-plotter \
   --output SEPTIN3_by_gene_id.pdf
 ```
 
-### Selecting genes with `--gene-file`
+#### 3.1.1 Example output
+
+The preview below is rendered from the editable PDF produced by isoform mode.
+Click the image to open or download the original vector PDF.
+
+[![Isoform-mode example showing ENST transcript labels, UTR/CDS heights, and splice highlighting](docs/images/isoform_example.png)](docs/examples/isoform_example.pdf)
+
+#### 3.1.2 Selecting genes with `--gene-file`
 
 Instead of `--genes`, isoform mode can read genes and optional per-gene splice
 annotations from a tab-separated file:
@@ -156,7 +163,7 @@ python plot_transcript.py \
   --genes SEPTIN3
 ```
 
-### UTR and CDS display
+#### 3.1.3 UTR and CDS display
 
 In isoform mode, exon height follows the standard genome-browser convention:
 
@@ -186,7 +193,7 @@ This display depends on the annotation records in the input:
 When splice highlighting matches an affected exon, both its narrow UTR portion
 and any tall CDS portion are colored red.
 
-## Reference-region mode
+### 3.2 Reference-region mode
 
 Reference mode produces a UCSC-like gene track across a chromosome range. It
 shows all genes overlapping the range but selects only one representative
@@ -206,6 +213,15 @@ Commas are accepted in region coordinates:
 ```bash
 --region chr22:41,900,000-42,100,000
 ```
+
+#### 3.2.1 Example output
+
+The preview below shows the two-row reference layout: forward genes are on the
+top row, reverse genes are on the bottom row, and gene labels are staggered to
+reduce collisions. Click the image to open or download the original editable
+vector PDF.
+
+[![Reference-mode example with forward and reverse gene rows](docs/images/reference_example.png)](docs/examples/reference_example.pdf)
 
 The representative is selected in this priority order:
 
@@ -230,7 +246,7 @@ overlap while the gene structures remain in two rows. A scale bar is added at
 the upper right and automatically uses an appropriate length expressed in the
 selected `--unit` (`kb` or `Mb`).
 
-### How representative transcripts and exons are selected
+#### 3.2.2 How representative transcripts and exons are selected
 
 Reference mode does **not** select individual exons from different transcripts.
 It first chooses one complete representative transcript for each gene and then
@@ -274,7 +290,7 @@ The representative transcript ID is determined from the supplied GTF metadata.
 Changing the GTF release or annotation provider can therefore change which
 transcript is selected.
 
-## Optional splice highlighting
+## 4. Optional splice highlighting
 
 `--splice-file` is optional. If it is omitted, the plot is created without red
 or light-blue annotations.
@@ -303,7 +319,7 @@ gtf-isoform-plotter \
 
 Use `--splice-tolerance 0` to require exact matches.
 
-## Command-line options
+## 5. Command-line options
 
 ```text
 --gtf-file PATH          Input .gtf or .gtf.gz file (required)
@@ -317,7 +333,7 @@ Use `--splice-tolerance 0` to require exact matches.
 --splice-tolerance BP    Exon matching tolerance [2]
 ```
 
-## GTF requirements and behavior
+## 6. GTF requirements and behavior
 
 The parser uses `gene_name` or `gene_id`, `transcript_id`, chromosome, strand,
 and exon coordinates from standard 9-column GTF records. Full exon–intron
@@ -325,7 +341,7 @@ models require `exon` features. If a selected transcript has only a `transcript`
 feature, its span is drawn as a single block because individual exon boundaries
 are not present in the source file.
 
-### Why missing exon records matter
+### 6.1 Why missing exon records matter
 
 A transcript record supplies only the outer boundaries:
 
@@ -384,13 +400,13 @@ contains transcript spans but no exon features. It can be plotted, but it cannot
 provide multi-exon structures that are absent from the file. These records will
 therefore appear orange and hatched in both plot modes.
 
-## Editable PDF output
+## 7. Editable PDF output
 
 PDF fonts are embedded as TrueType (font type 42). Illustrator can edit the
 labels as text and ungroup/edit all graphical elements as vectors. No raster
 image is embedded by the plotter.
 
-## TODO
+## 8. TODO
 
 - Add reference-track biotype classification using GTF attributes such as
   `gene_type` and `gene_biotype`.
@@ -403,13 +419,13 @@ image is embedded by the plotter.
 - Define documented fallback behavior for GTF files that do not provide a gene
   biotype attribute.
 
-## Testing
+## 9. Testing
 
 ```bash
 python -m pytest
 ```
 
-## Repository layout
+## 10. Repository layout
 
 ```text
 transcript_isoform_plotter/
@@ -419,10 +435,12 @@ transcript_isoform_plotter/
   splice.py    Splice annotation parsing and matching
 tests/         Automated tests
 examples/      Example gene table
+docs/images/   README previews rendered from the example PDFs
+docs/examples/ Editable PDF examples linked from the README
 pyproject.toml Python packaging and dependencies
 environment.yml Conda environment
 ```
 
-## License
+## 11. License
 
 MIT

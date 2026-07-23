@@ -19,6 +19,11 @@ dist/
 *.bed
 *.bam
 *.bai
+!docs/
+!docs/images/
+!docs/images/*.png
+!docs/examples/
+!docs/examples/*.pdf
 .idea/
 .vscode/
 .DS_Store
