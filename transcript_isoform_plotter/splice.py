@@ -97,11 +97,28 @@ def read_gene_table(path: Path):
     return genes, annotations_by_gene
 
 
-def matching_annotations(exon, annotations, tolerance):
-    """Return annotations matching both exon ends within ``tolerance`` bp."""
+def matching_annotations(exon, annotations, tolerance, min_overlap=0.80):
+    """Return annotations associated with an exon.
+
+    A match is accepted when both ends agree within ``tolerance`` bp, or when
+    at least ``min_overlap`` of the supplied affected-exon interval overlaps
+    the GTF exon. The overlap rule supports partial exon intervals produced by
+    splice-event tools rather than requiring complete GTF exon bounds.
+    """
     start, end = exon
-    return [
-        item for item in annotations
-        if abs(start - item["exon"][0]) <= tolerance
-        and abs(end - item["exon"][1]) <= tolerance
-    ]
+    matches = []
+    for item in annotations:
+        annotation_start, annotation_end = item["exon"]
+        endpoint_match = (
+            abs(start - annotation_start) <= tolerance
+            and abs(end - annotation_end) <= tolerance
+        )
+        overlap = max(
+            0,
+            min(end, annotation_end) - max(start, annotation_start) + 1,
+        )
+        annotation_length = annotation_end - annotation_start + 1
+        overlap_match = overlap / annotation_length >= min_overlap
+        if endpoint_match or overlap_match:
+            matches.append(item)
+    return matches

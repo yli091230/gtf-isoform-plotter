@@ -5,8 +5,15 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .gtf import parse_region, read_genes, read_reference_region
-from .plotting import write_pdf, write_reference_pdf
+from .gtf import (
+    filter_gene_transcripts,
+    normalize_reference_gene_types,
+    normalize_transcript_filters,
+    parse_region,
+    read_genes,
+    read_reference_region,
+)
+from .plotting import write_gene_pdfs, write_pdf, write_reference_pdf
 from .splice import read_gene_table, read_splice_annotations
 
 
@@ -38,11 +45,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="For --plot-type reference: chromosome range, e.g. chr22:41900000-42000000",
     )
     parser.add_argument(
+        "--transcript-filter",
+        default="all",
+        help=(
+            "Isoform filter(s), comma-separated with OR behavior: all, basic, "
+            "mane, canonical, appris_principal, protein_coding, coding, "
+            "noncoding, or type:TRANSCRIPT_TYPE (default: all)"
+        ),
+    )
+    parser.add_argument(
+        "--reference-gene-type",
+        default="protein_coding",
+        help=(
+            "Reference-mode gene type(s), comma-separated with OR behavior: "
+            "all, protein_coding, noncoding, pseudogene, miRNA, lncRNA, or "
+            "type:GENE_TYPE (default: protein_coding)"
+        ),
+    )
+    parser.add_argument(
         "--output",
         "-o",
         type=Path,
         default=Path("transcript_isoforms.pdf"),
         help="Editable PDF output (default: transcript_isoforms.pdf)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        help=(
+            "Isoform output directory. Multiple genes are always written here "
+            "as separate GENE.pdf files"
+        ),
     )
     parser.add_argument("--unit", choices=("kb", "Mb"), default="kb")
     parser.add_argument(
@@ -86,8 +119,18 @@ def main(argv=None) -> int:
             parser.error(
                 "--genes and --gene-file are only valid with --plot-type isoforms"
             )
+        if args.output_dir:
+            parser.error("--output-dir is only valid with --plot-type isoforms")
+        if args.transcript_filter.casefold() != "all":
+            parser.error(
+                "--transcript-filter is only valid with --plot-type isoforms"
+            )
 
     try:
+        transcript_filters = normalize_transcript_filters(args.transcript_filter)
+        reference_gene_types = normalize_reference_gene_types(
+            args.reference_gene_type
+        )
         gene_splice_annotations = None
         if args.plot_type == "isoforms" and args.gene_file:
             genes, gene_splice_annotations = read_gene_table(args.gene_file)
@@ -96,16 +139,35 @@ def main(argv=None) -> int:
         )
         if args.plot_type == "isoforms":
             gene_models = read_genes(args.gtf_file, genes)
-            write_pdf(
-                gene_models,
-                args.output,
-                args.unit,
-                splice_annotations,
-                args.splice_tolerance,
-                gene_splice_annotations,
+            gene_models = filter_gene_transcripts(
+                gene_models, transcript_filters
             )
+            if len(gene_models) > 1 or args.output_dir:
+                output_dir = args.output_dir or args.output.parent
+                output_paths = write_gene_pdfs(
+                    gene_models,
+                    output_dir,
+                    args.unit,
+                    splice_annotations,
+                    args.splice_tolerance,
+                    gene_splice_annotations,
+                )
+            else:
+                write_pdf(
+                    gene_models,
+                    args.output,
+                    args.unit,
+                    splice_annotations,
+                    args.splice_tolerance,
+                    gene_splice_annotations,
+                )
+                output_paths = {next(iter(gene_models)): args.output}
         else:
-            reference = read_reference_region(args.gtf_file, parse_region(args.region))
+            reference = read_reference_region(
+                args.gtf_file,
+                parse_region(args.region),
+                reference_gene_types,
+            )
             write_reference_pdf(
                 reference,
                 args.output,
@@ -122,8 +184,10 @@ def main(argv=None) -> int:
         )
         print(
             f"Saved {transcript_count} transcript model(s) for {len(gene_models)} "
-            f"gene(s) to {args.output}"
+            f"gene(s) to {len(output_paths)} PDF file(s)"
         )
+        for gene_name, output_path in output_paths.items():
+            print(f"  {gene_name}: {output_path}")
     else:
         print(
             f"Saved {len(reference['genes'])} representative reference transcript(s) "

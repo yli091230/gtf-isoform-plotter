@@ -8,6 +8,26 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import TextIO
 
+SUPPORTED_TRANSCRIPT_FILTERS = {
+    "all",
+    "basic",
+    "mane",
+    "canonical",
+    "appris_principal",
+    "protein_coding",
+    "coding",
+    "noncoding",
+}
+
+SUPPORTED_REFERENCE_GENE_TYPES = {
+    "all",
+    "protein_coding",
+    "noncoding",
+    "pseudogene",
+    "mirna",
+    "lncrna",
+}
+
 
 def parse_attributes(text: str) -> dict[str, str]:
     """Parse GTF column 9 into a dictionary."""
@@ -28,6 +48,12 @@ def _new_transcript(attrs: dict, strand: str, tags=None) -> dict:
         # rather than provider-specific display names such as SEPTIN3-207.
         "label": transcript_id,
         "transcript_id": transcript_id,
+        "transcript_type": attrs.get("transcript_type", ""),
+        "gene_type": (
+            attrs.get("gene_type")
+            or attrs.get("gene_biotype")
+            or attrs.get("transcript_type", "")
+        ),
         "strand": strand,
         "exons": [],
         "cds": [],
@@ -116,6 +142,87 @@ def read_genes(path: Path, gene_queries: list[str]) -> OrderedDict[str, dict]:
     return genes
 
 
+def normalize_transcript_filters(text: str) -> list[str]:
+    """Parse and validate comma-separated transcript filters."""
+    aliases = {
+        "mane_select": "mane",
+        "ensembl_canonical": "canonical",
+        "appris": "appris_principal",
+    }
+    filters = []
+    for value in text.split(","):
+        value = aliases.get(value.strip().casefold(), value.strip().casefold())
+        if not value:
+            continue
+        if value not in SUPPORTED_TRANSCRIPT_FILTERS and not value.startswith("type:"):
+            choices = ", ".join(sorted(SUPPORTED_TRANSCRIPT_FILTERS))
+            raise ValueError(
+                f"Unknown transcript filter {value!r}. Use one of {choices}, "
+                "or type:TRANSCRIPT_TYPE"
+            )
+        if value == "type:":
+            raise ValueError("type: transcript filter requires a transcript type value")
+        if value not in filters:
+            filters.append(value)
+    if not filters:
+        raise ValueError("--transcript-filter must contain at least one filter")
+    return filters
+
+
+def _transcript_matches_filter(transcript: dict, filter_name: str) -> bool:
+    tags = transcript["tags"]
+    if filter_name == "all":
+        return True
+    if filter_name == "basic":
+        return "basic" in tags
+    if filter_name == "mane":
+        return "MANE_Select" in tags
+    if filter_name == "canonical":
+        return "Ensembl_canonical" in tags
+    if filter_name == "appris_principal":
+        return any(tag.startswith("appris_principal") for tag in tags)
+    if filter_name == "protein_coding":
+        return transcript["transcript_type"] == "protein_coding"
+    if filter_name == "coding":
+        return bool(transcript["cds"])
+    if filter_name == "noncoding":
+        return not transcript["cds"]
+    if filter_name.startswith("type:"):
+        requested_type = filter_name.split(":", 1)[1]
+        return transcript["transcript_type"].casefold() == requested_type.casefold()
+    return False
+
+
+def filter_gene_transcripts(genes: OrderedDict, filters: list[str]) -> OrderedDict:
+    """Filter isoforms with OR semantics while preserving GTF ordering."""
+    if "all" in filters:
+        return genes
+    filtered = OrderedDict()
+    empty_genes = []
+    for gene_name, gene in genes.items():
+        transcripts = OrderedDict(
+            (
+                transcript_id,
+                transcript,
+            )
+            for transcript_id, transcript in gene["transcripts"].items()
+            if any(
+                _transcript_matches_filter(transcript, filter_name)
+                for filter_name in filters
+            )
+        )
+        if not transcripts:
+            empty_genes.append(gene_name)
+            continue
+        filtered[gene_name] = {**gene, "transcripts": transcripts}
+    if empty_genes:
+        raise ValueError(
+            "No transcripts passed --transcript-filter for: "
+            + ", ".join(empty_genes)
+        )
+    return filtered
+
+
 def parse_region(text: str) -> tuple[str, int, int]:
     """Parse ``chrom:start-end``; commas in coordinates are allowed."""
     match = re.fullmatch(r"([^:]+):(\d[\d,]*)-(\d[\d,]*)", text.strip())
@@ -129,6 +236,61 @@ def parse_region(text: str) -> tuple[str, int, int]:
     if start >= end:
         raise ValueError("--region start must be smaller than its end")
     return chrom, start, end
+
+
+def normalize_reference_gene_types(text: str) -> list[str]:
+    """Parse comma-separated reference gene-biotype filters."""
+    aliases = {
+        "protein-coding": "protein_coding",
+        "protein coding": "protein_coding",
+        "mirna": "mirna",
+        "lincrna": "lncrna",
+        "other": "noncoding",
+    }
+    filters = []
+    for raw_value in text.split(","):
+        value = raw_value.strip()
+        normalized = aliases.get(value.casefold(), value.casefold())
+        if not normalized:
+            continue
+        if (
+            normalized not in SUPPORTED_REFERENCE_GENE_TYPES
+            and not normalized.startswith("type:")
+        ):
+            choices = ", ".join(sorted(SUPPORTED_REFERENCE_GENE_TYPES))
+            raise ValueError(
+                f"Unknown reference gene type {value!r}. Use one of {choices}, "
+                "or type:GENE_TYPE"
+            )
+        if normalized == "type:":
+            raise ValueError("type: reference gene filter requires a gene type value")
+        if normalized not in filters:
+            filters.append(normalized)
+    if not filters:
+        raise ValueError("--reference-gene-type must contain at least one filter")
+    return filters
+
+
+def _matches_reference_gene_type(transcript: dict, filter_name: str) -> bool:
+    gene_type = transcript.get("gene_type", "")
+    normalized_type = gene_type.casefold()
+    if filter_name == "all":
+        return True
+    if not normalized_type:
+        return False
+    if filter_name == "protein_coding":
+        return normalized_type == "protein_coding"
+    if filter_name == "noncoding":
+        return normalized_type != "protein_coding"
+    if filter_name == "pseudogene":
+        return "pseudogene" in normalized_type
+    if filter_name == "mirna":
+        return normalized_type in {"mirna", "mirna_gene"}
+    if filter_name == "lncrna":
+        return normalized_type in {"lncrna", "lincrna"}
+    if filter_name.startswith("type:"):
+        return normalized_type == filter_name.split(":", 1)[1].casefold()
+    return False
 
 
 def _representative_rank(transcript: dict) -> tuple:
@@ -152,8 +314,13 @@ def _representative_rank(transcript: dict) -> tuple:
     )
 
 
-def read_reference_region(path: Path, region: tuple[str, int, int]) -> dict:
+def read_reference_region(
+    path: Path,
+    region: tuple[str, int, int],
+    gene_type_filters=None,
+) -> dict:
     """Select one best curated/canonical transcript per gene in a region."""
+    gene_type_filters = gene_type_filters or ["all"]
     chrom, region_start, region_end = region
     genes: OrderedDict[str, dict] = OrderedDict()
 
@@ -202,12 +369,18 @@ def read_reference_region(path: Path, region: tuple[str, int, int]) -> dict:
                 _finalize_transcript(transcript_id, transcript)
             except ValueError:
                 continue
-            valid.append(transcript)
+            if any(
+                _matches_reference_gene_type(transcript, filter_name)
+                for filter_name in gene_type_filters
+            ):
+                valid.append(transcript)
         if valid:
             selected[gene_label] = max(valid, key=_representative_rank)
     if not selected:
         raise ValueError(
-            f"No usable transcript annotations found in {chrom}:{region_start}-{region_end}"
+            "No reference genes passed --reference-gene-type "
+            f"{','.join(gene_type_filters)} in "
+            f"{chrom}:{region_start}-{region_end}"
         )
     return {
         "chrom": chrom,
