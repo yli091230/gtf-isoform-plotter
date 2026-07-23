@@ -1,0 +1,10 @@
+name: gtf-isoform-plotter
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.9
+  - matplotlib>=3.5
+  - pip
+  - pip:
+      - -e .
+
